@@ -1,6 +1,7 @@
 """Import all models to make sure they are registered with SQLAlchemy."""
 
 from derisk.model.cluster.registry_impl.db_storage import ModelInstanceEntity
+from derisk_app.auth.user_service import UserEntity
 from derisk.storage.chat_history.chat_history_db import (
     ChatHistoryEntity,
     ChatHistoryMessageEntity,
@@ -47,4 +48,5 @@ _MODELS = [
     AppConfigServeEntity,
     MCPServeEntity,
     ChannelEntity,
+    UserEntity,
 ]
