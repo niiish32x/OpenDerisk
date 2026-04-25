@@ -1,6 +1,6 @@
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -264,12 +264,38 @@ def _sync_oauth2_config_from_db():
         logger.warning(f"Failed to sync OAuth2 from database: {e}")
 
 
+def _convert_toml_agent_llm_to_json_format(toml_agent_llm: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert TOML agent.llm format to JSON agent_llm format.
+
+    TOML format (agent.llm):
+        { "temperature": 0.5, "provider": [{ "provider": "openai", "api_base": "...", "model": [...] }] }
+
+    JSON format (agent_llm):
+        { "temperature": 0.5, "providers": [{ "provider": "openai", "api_base": "...", "models": [...] }] }
+    """
+    result = dict(toml_agent_llm)
+    providers = result.pop("provider", [])
+    json_providers = []
+    for p in providers:
+        if not isinstance(p, dict):
+            continue
+        converted = dict(p)
+        if "model" in converted:
+            converted["models"] = converted.pop("model")
+        json_providers.append(converted)
+    result["providers"] = json_providers
+    return result
+
+
 def _sync_app_config_to_system_app():
     """Sync JSON config (agent_llm, default_model, etc.) to system_app.config on startup.
 
     This ensures that after restart, the LLM configuration saved in derisk.json
     is properly loaded into system_app.config and ModelConfigCache, making models
     available immediately without needing manual refresh.
+
+    When derisk.json has no providers configured but TOML does, the TOML providers
+    are synced back into derisk.json (one-time bootstrap from TOML to JSON config).
     """
     try:
         from derisk_core.config import ConfigManager
@@ -295,6 +321,83 @@ def _sync_app_config_to_system_app():
         from derisk_app.openapi.api_v1.config_api import (
             _convert_agent_llm_to_system_format,
         )
+
+        # Check if JSON config has providers; if empty, try to seed from TOML
+        json_providers = (
+            agent_llm_conf.providers if hasattr(agent_llm_conf, "providers") else []
+        )
+        if not json_providers:
+            # JSON has no providers — check if TOML already loaded providers into system_app.config
+            toml_agent = system_app.config.get("agent", None)
+            toml_llm = toml_agent.get("llm", {}) if isinstance(toml_agent, dict) else None
+
+            if toml_llm and toml_llm.get("provider"):
+                # Bootstrap: sync TOML providers into derisk.json
+                json_llm_dict = _convert_toml_agent_llm_to_json_format(toml_llm)
+                logger.info(
+                    f"Bootstrapping {len(json_llm_dict.get('providers', []))} providers "
+                    f"from TOML config into derisk.json"
+                )
+                try:
+                    from derisk_core.config.schema import AgentLLMConfig, LLMProviderConfig, LLMProviderModelConfig
+
+                    new_providers = []
+                    for p_dict in json_llm_dict.get("providers", []):
+                        models = [
+                            LLMProviderModelConfig(
+                                name=m.get("name", ""),
+                                temperature=m.get("temperature", 0.7),
+                                max_new_tokens=m.get("max_new_tokens", 4096),
+                                is_multimodal=m.get("is_multimodal", False),
+                            )
+                            for m in p_dict.get("models", [])
+                            if isinstance(m, dict) and m.get("name")
+                        ]
+                        if models:
+                            new_providers.append(
+                                LLMProviderConfig(
+                                    provider=p_dict.get("provider", "openai"),
+                                    api_base=p_dict.get("api_base", ""),
+                                    api_key_ref=p_dict.get("api_key_ref", ""),
+                                    models=models,
+                                )
+                            )
+
+                    if new_providers:
+                        cfg.agent_llm = AgentLLMConfig(
+                            temperature=json_llm_dict.get("temperature", 0.5),
+                            providers=new_providers,
+                        )
+                        # Persist to derisk.json
+                        ConfigManager.save()
+                        logger.info("TOML providers saved to derisk.json")
+
+                        # Also store api_key from TOML into secrets if present
+                        for p_dict in json_llm_dict.get("providers", []):
+                            api_key = p_dict.get("api_key", "")
+                            if api_key:
+                                provider_name = p_dict.get("provider", "openai")
+                                try:
+                                    from derisk_core.config.encryption import save_secrets, load_secrets
+
+                                    secrets = load_secrets() or {}
+                                    secret_key = f"{provider_name}_api_key"
+                                    secrets[secret_key] = api_key
+                                    save_secrets(secrets)
+
+                                    # Update provider to use api_key_ref instead
+                                    for p in cfg.agent_llm.providers:
+                                        if p.provider == provider_name:
+                                            p.api_key_ref = f"${{secrets.{secret_key}}}"
+                                    ConfigManager.save()
+                                    logger.info(f"API key for {provider_name} saved to secrets")
+                                except Exception as e:
+                                    logger.warning(f"Failed to save API key to secrets: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to bootstrap TOML providers into derisk.json: {e}")
+
+                # Refresh agent_llm_conf after bootstrap
+                agent_llm_conf = cfg.agent_llm
 
         agent_llm_dict = _convert_agent_llm_to_system_format(agent_llm_conf)
 
