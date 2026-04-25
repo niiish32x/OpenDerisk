@@ -252,6 +252,7 @@ def _sync_oauth2_config_from_db():
                 enabled=db_oauth2.get("enabled", False),
                 providers=db_oauth2.get("providers", []),
                 admin_users=db_oauth2.get("admin_users", []),
+                default_role=db_oauth2.get("default_role", "viewer"),
             )
             cfg.oauth2 = oauth2_config
             logger.info(
