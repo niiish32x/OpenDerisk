@@ -124,11 +124,16 @@ class MemoryCasePluginService:
             MemoryToolSpec(
                 name="memory_case_upsert",
                 description=(
-                    "End-of-task: persist RCA/playbook. BEFORE new row, "
-                    "memory_case_search for near-dupes; merge via case_id if match. "
-                    "Include symptom_summary, diagnosis (free Markdown: hypotheses, "
-                    "actions taken, dead ends, reasoning chain), resolution, root_cause, "
-                    "confidence."
+                    "End-of-task: persist RCA/playbook into the case memory library so "
+                    "future investigations can reuse this experience. "
+                    "BEFORE calling, run memory_case_search to check for near-duplicates; "
+                    "if an existing case matches, merge by passing its case_id. "
+                    "MUST pass a 'case' object — calling without it or with null/empty "
+                    "will be rejected (MISSING_CASE). "
+                    "Required fields: symptom_summary, diagnosis, resolution, confidence. "
+                    "Optional but strongly recommended: root_cause, metadata (with "
+                    "failure_layer, runtime, middleware, related_services for cross-case "
+                    "matching)."
                 ),
                 inputSchema={
                     "type": "object",
@@ -136,19 +141,120 @@ class MemoryCasePluginService:
                     "properties": {
                         "case": {
                             "type": "object",
-                            "description": (
-                                "CandidateCase: symptom_summary, diagnosis (free Markdown "
-                                "covering hypotheses, actions, dead ends, and reasoning), "
-                                "resolution, root_cause, confidence; "
-                                "metadata.case_context for routing and provenance: "
-                                "application_name, data_sources, related_services, region, "
-                                "tags; "
-                                "CRITICAL for cross-case matching — also include "
-                                "failure_layer (jvm/k8s/network/db/application), "
-                                "runtime (java/go/python/nodejs), middleware (dubbo/spring-boot/gin); "
-                                "optional case_id to merge; fingerprint optional "
-                                "(derived from case_context + summary if omitted)."
-                            ),
+                            "required": [
+                                "symptom_summary",
+                                "diagnosis",
+                                "resolution",
+                                "confidence",
+                            ],
+                            "properties": {
+                                "symptom_summary": {
+                                    "type": "string",
+                                    "description": (
+                                        "1-2 sentences describing what went wrong. "
+                                        "Include key signals: error messages, metrics "
+                                        "anomalies, alert names. "
+                                        'Example: "order-svc Pod OOMKilled, JVM heap '
+                                        '512M exhausted under peak QPS 2000, GC overhead > 40%".'
+                                    ),
+                                },
+                                "diagnosis": {
+                                    "type": "string",
+                                    "description": (
+                                        "Free-form Markdown narrating the investigation: "
+                                        "hypotheses tested, actions taken, dead ends hit, "
+                                        "and the reasoning chain that led to the root cause. "
+                                        "This is NOT a step-by-step SOP to replay — it is "
+                                        "a story of how you figured it out, so future agents "
+                                        "can understand the thinking pattern, not copy the steps."
+                                    ),
+                                },
+                                "resolution": {
+                                    "type": "string",
+                                    "description": (
+                                        "1 sentence: the concrete action that fixed the "
+                                        'problem. Example: "Increased -Xmx from 512M to '
+                                        '2G and added GC logging to /tmp/gc.log".'
+                                    ),
+                                },
+                                "root_cause": {
+                                    "type": "string",
+                                    "description": (
+                                        "1 sentence on the confirmed root cause. Leave "
+                                        'empty string if uncertain. '
+                                        'Example: "JVM heap was undersized for peak load '
+                                        'and no CircuitBreaker was configured on the caller side".'
+                                    ),
+                                },
+                                "confidence": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 1,
+                                    "description": (
+                                        "Your self-assessment of this case quality. "
+                                        "0.9–1.0: root cause confirmed and fix validated; "
+                                        "0.7–0.9: strong hypothesis with supporting evidence; "
+                                        "0.5–0.7: plausible but not fully verified; "
+                                        "< 0.5: speculative, needs more investigation."
+                                    ),
+                                },
+                                "case_id": {
+                                    "type": "string",
+                                    "description": (
+                                        "Pass an existing case_id to update/merge into "
+                                        "that case. Omit to create a new case (server "
+                                        "auto-generates case-{uuid})."
+                                    ),
+                                },
+                                "metadata": {
+                                    "type": "object",
+                                    "description": (
+                                        "case_context for routing and cross-case matching. "
+                                        "System auto-injects app_code/environment from scope. "
+                                        "CRITICAL fields for matching accuracy: "
+                                        "failure_layer (one of: jvm, k8s, network, db, "
+                                        "application, os, middleware, unknown), "
+                                        "runtime (java, go, python, nodejs, etc.), "
+                                        "related_services (list of affected service names), "
+                                        "middleware (dubbo, spring-boot, gin, etc.). "
+                                        "Also useful: application_name, region, tags, "
+                                        "data_sources."
+                                    ),
+                                    "properties": {
+                                        "failure_layer": {
+                                            "type": "string",
+                                            "enum": ["jvm", "k8s", "network", "db", "application", "os", "middleware", "unknown"],
+                                            "description": "Which layer failed.",
+                                        },
+                                        "runtime": {
+                                            "type": "string",
+                                            "description": "Runtime: java, go, python, nodejs, etc.",
+                                        },
+                                        "related_services": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Services affected or involved.",
+                                        },
+                                        "middleware": {
+                                            "type": "string",
+                                            "description": "Middleware framework: dubbo, spring-boot, gin, etc.",
+                                        },
+                                        "application_name": {
+                                            "type": "string",
+                                            "description": "Primary application name.",
+                                        },
+                                        "region": {
+                                            "type": "string",
+                                            "description": "Cloud region or data center.",
+                                        },
+                                        "tags": {
+                                            "type": "array",
+                                            "items": {"type": "string"},
+                                            "description": "Free-form tags for filtering.",
+                                        },
+                                    },
+                                },
+                            },
                         }
                     },
                 },
@@ -461,14 +567,20 @@ class MemoryCasePluginService:
     async def _upsert(self, args: Dict[str, Any]) -> Dict[str, Any]:
         case_data = args.get("case")
         if not case_data:
+            received_keys = sorted(args.keys()) if args else "<empty>"
             logger.warning(
                 "memory_case_upsert called without 'case' field; keys received: %s",
-                sorted(args.keys()) if args else "<empty>",
+                received_keys,
             )
             raise MemoryPluginError(
                 "MISSING_CASE",
-                "case payload is required. Pass a 'case' object with at least "
-                "symptom_summary, hypotheses, actions, resolution, and confidence.",
+                "MUST pass: {\"case\": {symptom_summary, diagnosis, resolution, "
+                "confidence}}. Received top-level keys: %s. "
+                "Fix: memory_case_upsert(case={"
+                "\"symptom_summary\": \"<1-2 sentences>\", "
+                "\"diagnosis\": \"<free Markdown investigation narrative>\", "
+                "\"resolution\": \"<one sentence fix>\", "
+                "\"confidence\": 0.8})" % received_keys,
             )
         if not case_data.get("case_id"):
             case_data["case_id"] = f"case-{uuid.uuid4().hex}"
@@ -485,6 +597,27 @@ class MemoryCasePluginService:
         if similar_cases:
             saved.metadata["similar_cases"] = similar_cases
             saved = self._dao.upsert(saved)
+            # bidirectional: update reverse direction on found cases
+            for sc in similar_cases:
+                try:
+                    peer = self._dao.get_by_case_id(sc["case_id"])
+                    if peer:
+                        peer_similar = (peer.metadata or {}).get("similar_cases") or []
+                        existing_ids = {s.get("case_id") for s in peer_similar}
+                        if saved.case_id not in existing_ids:
+                            peer_similar.append({
+                                "case_id": saved.case_id,
+                                "score": sc["score"],
+                                "relation": sc["relation"],
+                                "struct_match": sc["struct_match"],
+                            })
+                            peer.metadata["similar_cases"] = peer_similar
+                            self._dao.upsert(peer)
+                except Exception:
+                    logger.debug(
+                        "Failed to backfill reverse similar_case for %s", sc["case_id"],
+                        exc_info=True,
+                    )
         try:
             await self._vector_index.upsert(saved)
         except Exception:
