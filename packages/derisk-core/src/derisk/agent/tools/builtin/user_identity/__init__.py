@@ -15,15 +15,49 @@ from ...result import ToolResult
 
 
 def _extract_user_context(context) -> Optional[Dict[str, Any]]:
-    """从工具执行上下文中提取 user_context。
+    """从工具执行上下文中提取 user_context，优先使用 JWT auth_token。
 
     context 可能是 ToolContext 实例，也可能是普通 dict（来自 ToolAction._execute_tool）。
+    当 auth_token 可用时，从 JWT claims 解码用户信息（优先于 user_context）。
     """
     if context is None:
         return None
-    if isinstance(context, dict):
-        return context.get("user_context")
-    return getattr(context, "user_context", None)
+
+    raw = context if isinstance(context, dict) else {
+        "user_context": getattr(context, "user_context", None),
+        "auth_token": getattr(context, "auth_token", None),
+    }
+
+    user_ctx = raw.get("user_context") or {}
+    auth_token = raw.get("auth_token")
+
+    if auth_token:
+        try:
+            from derisk_ext.plugin.auth.jwt import decode_token
+
+            claims = decode_token(auth_token)
+            if claims:
+                user_ctx = {
+                    "user_id": claims.get("sub", user_ctx.get("user_id", "")),
+                    "name": claims.get("name", user_ctx.get("name", "")),
+                    "email": claims.get("email", user_ctx.get("email", "")),
+                    "avatar_url": claims.get("avatar_url", user_ctx.get("avatar_url", "")),
+                    "role": (claims.get("rbac") or {}).get("role", user_ctx.get("role", "normal")),
+                    "roles": (claims.get("rbac") or {}).get("roles", user_ctx.get("roles", [])),
+                    "permissions_map": (claims.get("rbac") or {}).get(
+                        "permissions", user_ctx.get("permissions_map", {})
+                    ),
+                    "permissions_summary": user_ctx.get(
+                        "permissions_summary", ""
+                    ),
+                    "rbac_enabled": user_ctx.get("rbac_enabled", True),
+                }
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+    return user_ctx if user_ctx else None
 
 
 class GetUserInfoTool(ToolBase):

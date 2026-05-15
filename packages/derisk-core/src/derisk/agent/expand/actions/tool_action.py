@@ -906,12 +906,15 @@ class ToolAction(Action[ToolInput]):
                 # Build context with user_context and sandbox_manager
                 tool_context = {}
 
-                # Extract user context from agent for user identity tools
+                # Extract user context and auth token from agent for identity tools
                 if agent and hasattr(agent, "agent_context"):
                     agent_ctx = agent.agent_context
                     extra = getattr(agent_ctx, "extra", None)
-                    if extra and isinstance(extra, dict) and "user_context" in extra:
-                        tool_context["user_context"] = extra["user_context"]
+                    if extra and isinstance(extra, dict):
+                        if "user_context" in extra:
+                            tool_context["user_context"] = extra["user_context"]
+                        if "auth_token" in extra:
+                            tool_context["auth_token"] = extra["auth_token"]
 
                 # Include sandbox_manager for sandbox tools
                 if (
