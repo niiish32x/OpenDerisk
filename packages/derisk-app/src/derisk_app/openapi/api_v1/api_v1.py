@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from derisk._private.config import Config
 
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.feature_plugins.permissions.checker import require_permission  # keep as web adapter
 from derisk.component import ComponentType, SystemApp
 from derisk.configs import TAG_KEY_KNOWLEDGE_CHAT_DOMAIN_TYPE
 from derisk.core import ModelOutput, HumanMessage

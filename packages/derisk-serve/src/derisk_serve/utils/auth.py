@@ -1,3 +1,5 @@
+"""Authentication utilities — resolve user identity from headers/session/JWT."""
+
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -9,10 +11,11 @@ logger = logging.getLogger(__name__)
 
 
 class UserRequest(BaseModel):
+    """Resolved user identity passed to FastAPI endpoints."""
+
     user_id: Optional[str] = None
     user_no: Optional[str] = None
     real_name: Optional[str] = None
-    # same with user_id
     user_name: Optional[str] = None
     user_channel: Optional[str] = None
     role: Optional[str] = "normal"
@@ -20,13 +23,15 @@ class UserRequest(BaseModel):
     email: Optional[str] = None
     avatar_url: Optional[str] = None
     nick_name_like: Optional[str] = None
-    # 新增字段（插件关闭时为 None，表示不做权限检查）
-    permissions: Optional[Dict[str, List[str]]] = None  # resource_type -> [actions]
-    roles: Optional[List[str]] = None  # 用户拥有的角色名列表
+    # RBAC: None means plugin disabled (no checks)
+    permissions: Optional[Dict[str, List[str]]] = None
+    roles: Optional[List[str]] = None
+    # JWT raw token for downstream propagation (agent → tool → MCP)
+    _raw_token: Optional[str] = None
 
 
 def _is_permissions_enabled() -> bool:
-    """检查 permissions 插件是否启用（运行时读取配置）"""
+    """Check whether permissions plugin is enabled at runtime."""
     try:
         from derisk_core.config import ConfigManager
 
@@ -43,20 +48,51 @@ def _is_permissions_enabled() -> bool:
         return False
 
 
+def _load_rbac_from_db(user_id: int):
+    """Load RBAC permissions from database (fallback when JWT has no rbac)."""
+    try:
+        from derisk_ext.plugin.auth.rbac.service import PermissionService
+
+        perms = PermissionService().get_user_permissions(user_id)
+        return perms.role_names, perms.permissions_map
+    except Exception:
+        return [], {}
+
+
+def _resolve_legacy_role(user_id: int) -> str:
+    """Look up legacy role field from user table."""
+    try:
+        from derisk_ext.plugin.auth.user.models import UserEntity
+        from derisk.storage.metadata.db_manager import db
+
+        with db.session(commit=False) as s:
+            user_obj = s.query(UserEntity).filter(UserEntity.id == user_id).first()
+            if user_obj and user_obj.role:
+                return user_obj.role
+    except Exception:
+        pass
+    return "normal"
+
+
 def get_user_from_headers(
     request: Request = None,
     x_user_id: Optional[str] = Header(None, alias="X-User-ID"),
     authorization: Optional[str] = Header(None),
 ) -> UserRequest:
-    """统一用户解析入口。
+    """Unified user identity resolver.
 
-    permissions OFF: 返回 mock admin（现有行为，完全不变）
-    permissions ON:  验证 JWT session → 加载 RBAC 权限
-                     但如果 X-User-ID 为 'admin'，则允许 bypass（本地开发模式）
+    Resolves user from:
+      1. permissions OFF → mock admin (backward compatible)
+      2. X-User-ID: admin → local dev bypass
+      3. derisk_session cookie → JWT or legacy session token
+      4. Authorization: Bearer <token> → JWT
+
+    JWT tokens are verified with derisk_ext.plugin.auth.jwt.verify_token().
+    Legacy session tokens are verified with the old verify_session_token()
+    during migration.
     """
     try:
         if not _is_permissions_enabled():
-            # ===== 插件关闭：保持现有行为 =====
             if x_user_id:
                 return UserRequest(
                     user_id=x_user_id,
@@ -71,23 +107,21 @@ def get_user_from_headers(
                 real_name="derisk",
             )
 
-        # ===== 插件开启：优先检查 X-User-ID header (本地开发 bypass) =====
-        # 支持本地开发：设置 X-User-ID: admin 可 bypass OAuth
+        # Local dev bypass
         if x_user_id == "admin":
-            from derisk_app.feature_plugins.permissions.service import PermissionService
-            perms = PermissionService().get_user_permissions(3)  # admin user ID=3
+            role_names, permissions_map = _load_rbac_from_db(3)
             return UserRequest(
                 user_id="3",
                 user_no="admin",
                 real_name="System Admin",
                 nick_name="System Admin",
                 role="admin",
-                permissions=perms.permissions_map,
-                roles=perms.role_names,
+                permissions=permissions_map,
+                roles=role_names,
             )
 
-        # ===== 验证 JWT session =====
-        token = None
+        # Extract token from cookie or Authorization header
+        token: Optional[str] = None
         if request:
             token = request.cookies.get("derisk_session")
         if not token and authorization:
@@ -95,61 +129,79 @@ def get_user_from_headers(
         if not token:
             raise HTTPException(status_code=401, detail="Authentication required")
 
-        from derisk_app.auth.session import verify_session_token
+        # Try JWT first, fall back to legacy session token
+        claims = None
+        raw_token = token
+        jws_verified = False
 
-        user_data = verify_session_token(token)
-        if not user_data:
-            raise HTTPException(status_code=401, detail="Invalid or expired session")
-
-        # 加载用户权限（带 60s 缓存）
-        from derisk_app.feature_plugins.permissions.service import PermissionService
-
-        user_id = user_data.get("id", 0)
-        perms = PermissionService().get_user_permissions(user_id)
-
-        # 获取用户的 role 字段（从数据库）
-        user_role = "normal"
         try:
-            from derisk_app.auth.user_service import UserEntity
-            from derisk.storage.metadata.db_manager import db
+            from derisk_ext.plugin.auth.jwt import verify_token, decode_token
 
-            with db.session(commit=False) as s:
-                user_obj = s.query(UserEntity).filter(UserEntity.id == user_id).first()
-                if user_obj and user_obj.role:
-                    user_role = user_obj.role
+            claims = verify_token(token)
+            jws_verified = True
         except Exception:
             pass
 
+        if not jws_verified:
+            # Fallback: try legacy session token (migration period)
+            try:
+                from derisk_app.auth.session import verify_session_token
+
+                user_data = verify_session_token(token)
+                if user_data:
+                    claims = _legacy_user_data_to_claims(user_data)
+            except Exception:
+                pass
+
+        if claims is None:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+        user_id = int(claims.get("sub", 0)) if claims.get("sub") else 0
+
+        # Load RBAC: prefer JWT claims, fallback to DB
+        rbac = claims.get("rbac", {})
+        if rbac and rbac.get("permissions"):
+            role_names = rbac.get("roles", [])
+            permissions_map = rbac.get("permissions", {})
+        else:
+            role_names, permissions_map = _load_rbac_from_db(user_id)
+
+        legacy_role = claims.get("role") or _resolve_legacy_role(user_id)
+
         return UserRequest(
-            user_id=str(user_data.get("id", "")),
-            user_no=str(user_data.get("id", "")),
-            real_name=user_data.get("name", ""),
-            nick_name=user_data.get("name", ""),
-            email=user_data.get("email", ""),
-            avatar_url=user_data.get("avatar", ""),
-            role=user_role,
-            permissions=perms.permissions_map,
-            roles=perms.role_names,
+            user_id=str(user_id),
+            user_no=str(user_id),
+            real_name=claims.get("name", ""),
+            nick_name=claims.get("name", ""),
+            email=claims.get("email", ""),
+            avatar_url=claims.get("avatar_url", ""),
+            role=legacy_role,
+            permissions=permissions_map,
+            roles=role_names,
+            _raw_token=raw_token,
         )
     except HTTPException:
         raise
     except Exception as e:
-        logging.exception("Authentication failed!")
+        logger.exception("Authentication failed!")
         raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
+
+
+def _legacy_user_data_to_claims(user_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Convert legacy session user_data to JWT-like claims dict."""
+    return {
+        "sub": str(user_data.get("id", "")),
+        "name": user_data.get("name", user_data.get("login", "")),
+        "email": user_data.get("email", ""),
+        "avatar_url": user_data.get("avatar_url", user_data.get("avatar", "")),
+        "role": user_data.get("role", "normal"),
+    }
 
 
 def format_permissions_summary(
     permissions: Optional[Dict[str, List[str]]], rbac_enabled: bool
 ) -> str:
-    """将权限映射格式化为人类可读的摘要字符串。
-
-    Args:
-        permissions: 资源类型到操作列表的映射，如 {"agent": ["read", "chat"]}
-        rbac_enabled: RBAC 是否启用
-
-    Returns:
-        格式化的权限摘要字符串
-    """
+    """Format permissions map as human-readable summary string."""
     if not rbac_enabled:
         return "全部权限 (RBAC 未启用)"
 
@@ -167,17 +219,17 @@ def format_permissions_summary(
 def build_user_context(
     user_request: UserRequest, rbac_enabled: bool
 ) -> Dict[str, Any]:
-    """从 UserRequest 构建用户上下文字典，用于注入到 AgentContext.extra 中。
+    """Build user_context dict from UserRequest for agent context injection.
 
-    Args:
-        user_request: 当前请求的用户信息
-        rbac_enabled: RBAC 权限插件是否启用
-
-    Returns:
-        用户上下文字典，包含 user_id, name, email, avatar_url, role,
-        roles, permissions_map, permissions_summary, rbac_enabled
+    When JWT _raw_token is available, user_context is built from JWT claims
+    (preferred). Otherwise falls back to UserRequest fields.
     """
-    name = user_request.real_name or user_request.nick_name or user_request.user_id or "未知"
+    name = (
+        user_request.real_name
+        or user_request.nick_name
+        or user_request.user_id
+        or "Unknown"
+    )
 
     if not rbac_enabled:
         return {
@@ -190,6 +242,7 @@ def build_user_context(
             "permissions_map": None,
             "permissions_summary": format_permissions_summary(None, rbac_enabled=False),
             "rbac_enabled": False,
+            "auth_token": user_request._raw_token,
         }
 
     return {
@@ -204,4 +257,5 @@ def build_user_context(
             user_request.permissions, rbac_enabled=True
         ),
         "rbac_enabled": True,
+        "auth_token": user_request._raw_token,
     }
