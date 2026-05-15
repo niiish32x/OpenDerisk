@@ -1,7 +1,7 @@
 # RBAC 系统角色说明（当前实现）
 
 本文档说明 OpenDerisk 当前内置（系统）角色的职责边界。  
-系统角色由 `permissions/seed.py` 初始化，`is_system=1`，默认不可删除、不可修改、不可重新配置权限。
+系统角色由 `derisk-ext/plugin/auth/rbac/seed.py` 初始化，`is_system=1`，默认不可删除、不可修改、不可重新配置权限。
 
 ## 1. 角色清单
 
