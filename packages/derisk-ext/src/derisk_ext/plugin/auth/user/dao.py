@@ -224,6 +224,7 @@ class UserDao(BaseDao):
                 if user.password_hash != sha:
                     return None
 
+            _ensure_user_has_role(user.id, "admin" if user.role == "admin" else "viewer")
             return user_to_dict(user)
 
     def set_password(self, user_id: int, password: str) -> bool:

@@ -1,11 +1,12 @@
 "use client"
 import { UserInfoResponse } from '@/types/userinfo';
 import { STORAGE_USERINFO_KEY } from '@/utils/constants/index';
+import { ChatContext } from '@/contexts';
 import { authService } from '@/services/auth';
 import { Avatar, Dropdown } from 'antd';
 import { LogoutOutlined } from '@ant-design/icons';
 import cls from 'classnames';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 interface UserBarProps {
@@ -14,19 +15,23 @@ interface UserBarProps {
 
 function UserBar({ onlyAvatar = false }: UserBarProps) {
   const { t } = useTranslation();
+  const { userInfo: contextUserInfo } = useContext(ChatContext);
   const [userInfo, setUserInfo] = useState<UserInfoResponse>();
   const [oauthEnabled, setOauthEnabled] = useState(false);
 
   useEffect(() => {
-    try {
-      const user = JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? '');
+    const user = contextUserInfo ?? (() => {
+      try {
+        return JSON.parse(localStorage.getItem(STORAGE_USERINFO_KEY) ?? '') as UserInfoResponse;
+      } catch {
+        return undefined;
+      }
+    })();
+    if (user) {
       setUserInfo(user);
-      // Check if OAuth is enabled by checking if user_channel exists
-      setOauthEnabled(!!user?.user_channel);
-    } catch {
-      return undefined;
+      setOauthEnabled(!!user.user_channel);
     }
-  }, []);
+  }, [contextUserInfo]);
 
   const handleLogout = async () => {
     try {

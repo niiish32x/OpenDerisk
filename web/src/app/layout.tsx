@@ -67,7 +67,7 @@ function CssWrapper({ children }: { children: React.ReactElement }) {
 }
 
 function LayoutWrapper({ children }: { children: React.ReactNode }) {
-  const { mode } = useContext(ChatContext);
+  const { mode, setUserInfo } = useContext(ChatContext);
   const { i18n } = useTranslation();
   const pathname = usePathname();
   const [mounted, setMounted] = useState(false);
@@ -93,6 +93,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
           const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
           localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
           localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+          setUserInfo(user);
           return;
         }
         const me = await authService.getMe();
@@ -106,6 +107,7 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         };
         localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
         localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+        setUserInfo(user);
       } catch {
         try {
           const oauthStatus = await authService.getOAuthStatus();
@@ -122,12 +124,13 @@ function LayoutWrapper({ children }: { children: React.ReactNode }) {
         const user = { user_channel: "derisk", user_no: "001", nick_name: "derisk" };
         localStorage.setItem(STORAGE_USERINFO_KEY, JSON.stringify(user));
         localStorage.setItem(STORAGE_USERINFO_VALID_TIME_KEY, Date.now().toString());
+        setUserInfo(user);
       } finally {
         authCheckInProgress.current = false;
       }
     };
     checkAuth();
-  }, [mounted]); // 只依赖 mounted，pathname 变化不重新检查
+  }, [mounted, isPublicRoute]);
 
   // 公开页面：直接渲染（无侧边栏）
   if (isPublicRoute) {

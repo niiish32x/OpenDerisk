@@ -31,21 +31,39 @@ class UserRequest(BaseModel):
 
 
 def _is_permissions_enabled() -> bool:
-    """Check whether permissions plugin is enabled at runtime."""
+    """Check whether RBAC permissions are enabled.
+
+    Priority:
+      1. TOML config: ``[service.web] rbac_enabled = true``
+      2. derisk.json: ``feature_plugins.permissions.enabled`` (legacy)
+    """
+    # 1. TOML config (primary for deployments)
+    try:
+        from derisk._private.config import Config
+
+        c = Config()
+        if hasattr(c, "service") and hasattr(c.service, "web"):
+            val = getattr(c.service.web, "rbac_enabled", None)
+            if val is not None:
+                return bool(val)
+    except Exception:
+        pass
+
+    # 2. derisk.json legacy
     try:
         from derisk_core.config import ConfigManager
 
         cfg = ConfigManager.get()
         entry = (cfg.feature_plugins or {}).get("permissions")
-        if entry is None:
-            return False
-        if hasattr(entry, "enabled"):
-            return bool(entry.enabled)
-        if isinstance(entry, dict):
-            return bool(entry.get("enabled"))
-        return False
+        if entry is not None:
+            if hasattr(entry, "enabled"):
+                return bool(entry.enabled)
+            if isinstance(entry, dict):
+                return bool(entry.get("enabled"))
     except Exception:
-        return False
+        pass
+
+    return False
 
 
 def _load_rbac_from_db(user_id: int):

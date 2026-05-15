@@ -56,8 +56,8 @@ function matchCustomeTagValues(context: string) {
  * @param content
  */
 export function preprocessLaTeX(content: any): string {
-  if (typeof content !== 'string') {
-    return content;
+  if (content == null || typeof content !== 'string') {
+    return '';
   }
   // Extract code blocks
   const codeBlocks: string[] = [];
