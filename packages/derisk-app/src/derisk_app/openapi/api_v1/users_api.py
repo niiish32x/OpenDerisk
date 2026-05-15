@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from derisk_app.feature_plugins.permissions.checker import require_admin, require_permission
+from derisk_app.auth.checker import require_admin, require_permission
 from derisk_ext.plugin.auth.rbac.dao import PermissionDao
 from derisk_ext.plugin.auth.rbac.service import PermissionService
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers

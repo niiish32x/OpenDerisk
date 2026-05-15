@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from derisk_core.config.schema import AppConfig
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.auth.checker import require_permission
 
 router = APIRouter(prefix="/config", tags=["Config"])
 

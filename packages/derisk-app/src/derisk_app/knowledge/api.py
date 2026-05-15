@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, UploadFile
 
 from derisk._private.config import Config
 from derisk_serve.utils.auth import UserRequest
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.auth.checker import require_permission
 from derisk.configs import TAG_KEY_KNOWLEDGE_FACTORY_DOMAIN_TYPE
 from derisk.configs.model_config import (
     KNOWLEDGE_UPLOAD_ROOT_PATH,

@@ -22,7 +22,7 @@ from .schemas import ModelResponse
 
 # Import permission checker
 try:
-    from derisk_app.feature_plugins.permissions.checker import require_permission
+    from derisk_app.auth.checker import require_permission
     from derisk_serve.utils.auth import UserRequest
     PERMISSIONS_AVAILABLE = True
 except ImportError:

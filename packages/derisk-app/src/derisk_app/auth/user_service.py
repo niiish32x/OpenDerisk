@@ -18,7 +18,7 @@ def _ensure_user_has_role(user_id: int, rbac_default_role: str = "viewer") -> No
     If not, the configured default role (or 'viewer' as fallback) is assigned.
     """
     try:
-        from derisk_app.feature_plugins.permissions.dao import PermissionDao
+        from derisk_ext.plugin.auth.rbac.dao import PermissionDao
 
         dao = PermissionDao()
         existing_roles = dao.get_user_roles(user_id)
