@@ -1207,6 +1207,29 @@ class AgentChat(BaseComponent, ABC):
                 if app.user_prompt_template:
                     temp_profile.user_prompt_template = app.user_prompt_template
 
+                # 注入用户身份信息到 System Prompt，让 Agent 知道在和谁对话
+                auth_token = ext_info.get("auth_token")
+                if auth_token and temp_profile.system_prompt_template:
+                    try:
+                        from derisk_ext.plugin.auth.jwt import decode_token
+
+                        claims = decode_token(auth_token)
+                        user_name = claims.get("name", "Unknown") if claims else "Unknown"
+                        user_role = (
+                            (claims.get("rbac") or {}).get("role", "未知")
+                            if claims else "未知"
+                        )
+                        identity_block = (
+                            f"[当前用户]\n"
+                            f"姓名：{user_name}\n"
+                            f"角色：{user_role}\n"
+                        )
+                        temp_profile.system_prompt_template = (
+                            identity_block + "\n" + temp_profile.system_prompt_template
+                        )
+                    except Exception:
+                        pass
+
                 # 如果应用有场景，读取场景内容并注入到Agent的System Prompt
                 if app.scenes and len(app.scenes) > 0 and sandbox_manager:
                     try:
