@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">= 3.10"
 
 dependencies = [
-    "derisk-ext",
+    "derisk-ext[auth]",
     "apscheduler==3.11.0",
     "dacite==1.9.2"
 ]
