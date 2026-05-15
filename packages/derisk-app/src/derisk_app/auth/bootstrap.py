@@ -46,10 +46,19 @@ def register_enabled_feature_plugin_routers(app: FastAPI) -> None:
         return False
 
     access_control_enabled = _enabled("access_control")
+    user_groups_enabled = _enabled("user_groups") or access_control_enabled
     permissions_enabled = _enabled("permissions") or access_control_enabled
 
+    if user_groups_enabled:
+        from derisk_app.feature_plugins.user_groups.api import (
+            router as user_groups_router,
+        )
+
+        app.include_router(user_groups_router, prefix="/api/v1")
+        logger.info("Feature plugin mounted: user_groups at /api/v1/user-groups")
+
     if permissions_enabled:
-        from derisk_app.feature_plugins.permissions.api import (
+        from derisk_app.auth.permissions_api import (
             router as permissions_router,
         )
 
