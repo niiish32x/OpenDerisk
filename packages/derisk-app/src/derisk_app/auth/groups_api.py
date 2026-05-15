@@ -6,9 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
 
-from derisk_app.feature_plugins.permissions.checker import require_permission
-from derisk_app.feature_plugins.permissions.service import PermissionService
-from derisk_app.feature_plugins.user_groups.service import UserGroupService
+from derisk_app.auth.checker import require_permission
+from derisk_ext.plugin.auth.rbac.service import PermissionService
+from derisk_ext.plugin.auth.rbac.user_groups import UserGroupService
 from derisk_serve.utils.auth import UserRequest
 
 router = APIRouter(prefix="/user-groups", tags=["UserGroups"])

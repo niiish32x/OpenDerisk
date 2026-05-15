@@ -8,16 +8,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from sqlalchemy import func
 
 from derisk.storage.metadata.db_manager import db
-from derisk_app.feature_plugins.permissions.models import GroupRoleEntity
-from derisk_app.feature_plugins.user_groups.models import (
-    UserGroupEntity,
-    UserGroupMemberEntity,
-)
+
+from .models import GroupRoleEntity, UserGroupEntity, UserGroupMemberEntity
 
 logger = logging.getLogger(__name__)
 
 
 class UserGroupService:
+    """用户组管理服务"""
+
     def list_groups(self) -> List[Dict[str, Any]]:
         with db.session(commit=False) as s:
             rows = s.query(UserGroupEntity).order_by(UserGroupEntity.id.asc()).all()
@@ -68,7 +67,6 @@ class UserGroupService:
                 s.query(UserGroupMemberEntity).filter(
                     UserGroupMemberEntity.group_id == group_id
                 ).delete()
-                # Also clear RBAC group-role bindings to avoid orphan assignments.
                 s.query(GroupRoleEntity).filter(
                     GroupRoleEntity.group_id == group_id
                 ).delete()
