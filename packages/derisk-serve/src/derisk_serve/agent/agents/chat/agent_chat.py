@@ -1208,7 +1208,7 @@ class AgentChat(BaseComponent, ABC):
                     temp_profile.user_prompt_template = app.user_prompt_template
 
                 # 注入用户身份信息到 System Prompt，让 Agent 知道在和谁对话
-                auth_token = ext_info.get("auth_token")
+                auth_token = (context.extra or {}).get("auth_token")
                 if auth_token and temp_profile.system_prompt_template:
                     try:
                         from derisk_ext.plugin.auth.jwt import decode_token
