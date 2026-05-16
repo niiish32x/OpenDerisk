@@ -20,11 +20,47 @@ def _is_rbac_enabled() -> bool:
     return False
 
 
+def _ensure_permissions_plugin_enabled() -> None:
+    """Enable permissions & user_groups feature plugins in derisk.json.
+
+    Without this, ``get_user_from_headers()`` returns a hardcoded "derisk" mock
+    user even when JWT tokens are present, because ``_is_permissions_enabled()``
+    reads ``ConfigManager.feature_plugins.permissions.enabled``.
+    """
+    try:
+        from derisk_core.config import ConfigManager
+
+        cfg = ConfigManager.get()
+        plugins = cfg.feature_plugins or {}
+
+        updates = {}
+        for plugin_id in ("permissions", "user_groups"):
+            entry = plugins.get(plugin_id)
+            if entry is None:
+                updates[f"feature_plugins.{plugin_id}"] = {"enabled": True, "settings": {}}
+            elif isinstance(entry, dict):
+                if not entry.get("enabled"):
+                    updates[f"feature_plugins.{plugin_id}.enabled"] = True
+            elif hasattr(entry, "enabled") and not entry.enabled:
+                updates[f"feature_plugins.{plugin_id}.enabled"] = True
+
+        if updates:
+            ConfigManager.update_and_save(updates)
+            logger.info("Auto-enabled feature plugins: %s", list(updates.keys()))
+    except Exception:
+        logger.warning("Failed to auto-enable permissions plugin in derisk.json", exc_info=True)
+
+
 def register_enabled_feature_plugin_routers(app: FastAPI) -> None:
     """Mount RBAC API routes if ``rbac_enabled = true`` in TOML config."""
     if not _is_rbac_enabled():
         logger.info("RBAC disabled (set rbac_enabled=true in [service.web] to enable)")
         return
+
+    # Auto-enable permissions & user_groups plugins in derisk.json so that
+    # get_user_from_headers() resolves real user identity instead of the
+    # hardcoded "derisk" mock user.
+    _ensure_permissions_plugin_enabled()
 
     # Mount permissions API
     from derisk_app.auth.permissions_api import router as permissions_router
