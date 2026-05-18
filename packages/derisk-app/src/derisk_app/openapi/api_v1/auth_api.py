@@ -15,6 +15,21 @@ from derisk_app.auth.session import SessionManager
 
 logger = logging.getLogger(__name__)
 
+def _build_login_rbac(user_id: int, fallback_role: str = "normal") -> Dict[str, Any]:
+    """Load RBAC permissions from DB and return claims dict for JWT creation."""
+    try:
+        from derisk_ext.plugin.auth.rbac.service import PermissionService
+
+        perms = PermissionService().get_user_permissions(user_id)
+        return {
+            "role": fallback_role,
+            "roles": perms.role_names,
+            "permissions": perms.permissions_map,
+        }
+    except Exception:
+        return {"role": fallback_role, "roles": [], "permissions": {}}
+
+
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
 oauth_service = OAuth2Service()
@@ -215,7 +230,9 @@ async def oauth_callback(
     if not user.get("is_active", 1):
         return RedirectResponse(url="/login?error=user_disabled", status_code=302)
 
-    token = create_token(user=user)
+    user_id = int(user.get("id", 0))
+    rbac = _build_login_rbac(user_id, user.get("role", "normal"))
+    token = create_token(user=user, rbac=rbac)
 
     # Redirect to frontend - token in fragment so it's not sent to server
     base = str(request.base_url).rstrip("/")
@@ -243,7 +260,10 @@ async def local_login(body: LocalLoginRequest, request: Request):
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    token = create_token(user=user)
+    user_id = int(user.get("id", 0))
+    rbac = _build_login_rbac(user_id, user.get("role", "normal"))
+
+    token = create_token(user=user, rbac=rbac)
 
     response = JSONResponse(
         content={
@@ -255,7 +275,7 @@ async def local_login(body: LocalLoginRequest, request: Request):
                 "nick_name": user.get("name", user.get("fullname", "")),
                 "avatar_url": user.get("avatar", ""),
                 "email": user.get("email", ""),
-                "role": user.get("role", "normal"),
+                "role": rbac.get("role", user.get("role", "normal")),
                 "token": token,
             },
         }
