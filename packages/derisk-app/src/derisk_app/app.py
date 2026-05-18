@@ -202,7 +202,7 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
         register_enabled_feature_plugin_routers,
     )
 
-    register_enabled_feature_plugin_routers(app)
+    register_enabled_feature_plugin_routers(app, param)
 
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):
