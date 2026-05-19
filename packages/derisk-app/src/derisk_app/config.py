@@ -238,6 +238,10 @@ class ServiceWebParameters(BaseParameters):
         default=None,
         metadata={"help": _("The directories to search awel files, split by `,`")},
     )
+    rbac_enabled: bool = field(
+        default=False,
+        metadata={"help": _("Enable RBAC permissions system")},
+    )
     new_web_ui: bool = field(
         default=True,
         metadata={"help": _("Whether to use the new web UI, default is True")},

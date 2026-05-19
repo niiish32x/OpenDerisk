@@ -41,6 +41,8 @@ interface IChatContext {
   adminList: UserInfoResponse[];
   refreshDialogList?: any;
   setStepParams?: (params: { requestUrl: string; name: string; avatarUrl?: string }) => void;
+  userInfo: UserInfoResponse | null;
+  setUserInfo: (val: UserInfoResponse | null) => void;
 }
 
 function getDefaultTheme(): ThemeMode {
@@ -75,6 +77,8 @@ const ChatContext = createContext<IChatContext>({
   setCurrentDialogInfo: () => {},
   adminList: [],
   refreshDialogList: () => {},
+  userInfo: null,
+  setUserInfo: () => {},
 });
 
 const ChatContextProvider = ({ children }: { children: React.ReactElement }) => {
@@ -93,6 +97,9 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
   const [chatId, setChatId] = useState<string>(chat_Id);
   // 管理员列表
   const [adminList, setAdminList] = useState<UserInfoResponse[]>([]);
+
+  // 当前用户信息（支持外部通过 setUserInfo 动态更新）
+  const [userInfo, setUserInfo] = useState<UserInfoResponse | null>(null);
 
   const [currentDialogInfo, setCurrentDialogInfo] = useState({
     chat_scene: '',
@@ -161,7 +168,9 @@ const ChatContextProvider = ({ children }: { children: React.ReactElement }) => 
     setCurrentDialogInfo,
     adminList,
     refreshDialogList,
-    dialogueList
+    dialogueList,
+    userInfo,
+    setUserInfo,
   };
   // @ts-ignore
   return <ChatContext.Provider value={contextValue}>{children}</ChatContext.Provider>;

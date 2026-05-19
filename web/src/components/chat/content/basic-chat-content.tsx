@@ -6,6 +6,7 @@ import { IChatDialogueMessageSchema } from '@/types/chat';
 import { cloneDeep } from 'lodash';
 import React, { memo, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { v4 as uuid } from 'uuid';
+import ErrorBoundary from '@/components/error-boundary';
 import ChatHeader from '../header/chat-header';
 import ChatContent from './chat-content';
 
@@ -52,14 +53,18 @@ const BasicChatContent: React.FC<BasicChatContentProps> = ({ ctrl }) => {
             <div className="w-full">
               {showMessages.map((content, index) => (
                 <div key={index} className="mb-4">
-                  <ChatContent
-                    content={content}
-                    onLinkClick={() => {
-                      setJsonModalOpen(true);
-                      setJsonValue(JSON.stringify(content?.context, null, 2));
-                    }}
-                    messages={showMessages}
-                  />
+                  <ErrorBoundary fallbackRender={({ error }) => (
+                    <div className="p-4 text-red-500 text-sm">消息渲染失败: {error.message}</div>
+                  )}>
+                    <ChatContent
+                      content={content}
+                      onLinkClick={() => {
+                        setJsonModalOpen(true);
+                        setJsonValue(JSON.stringify(content?.context, null, 2));
+                      }}
+                      messages={showMessages}
+                    />
+                  </ErrorBoundary>
                 </div>
               ))}
               <div className="h-8" />

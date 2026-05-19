@@ -14,7 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from derisk._private.config import Config
 
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.auth.checker import require_permission  # keep as web adapter
 from derisk.component import ComponentType, SystemApp
 from derisk.configs import TAG_KEY_KNOWLEDGE_CHAT_DOMAIN_TYPE
 from derisk.core import ModelOutput, HumanMessage
@@ -434,9 +434,13 @@ async def chat_completions(
     # 注入用户上下文信息（身份、角色、权限），供 Agent 工具查询
     if user_token:
         try:
-            dialogue.ext_info["user_context"] = build_user_context(
+            uctx = build_user_context(
                 user_token, rbac_enabled=_is_permissions_enabled()
             )
+            dialogue.ext_info["user_context"] = uctx
+            # 顶层透传 JWT，方便 Agent/Tool/PromptAssembler 直接读取
+            if user_token._raw_token:
+                dialogue.ext_info["auth_token"] = user_token._raw_token
         except Exception:
             logger.warning("Failed to build user context for agent tools", exc_info=True)
 

@@ -29,13 +29,13 @@ from derisk_serve.building.config.models.models import (
 )
 from derisk_serve.mcp.models.models import ServeEntity as MCPServeEntity
 from derisk_serve.channel.models.models import ChannelEntity
-from derisk_app.auth.user_service import UserEntity
+from derisk_ext.plugin.auth.user.models import UserEntity
 from derisk_app.config_storage.oauth2_db_storage import OAuth2ConfigEntity
-from derisk_app.feature_plugins.user_groups.models import (
+from derisk_ext.plugin.auth.rbac.models import (
     UserGroupEntity,
     UserGroupMemberEntity,
 )
-from derisk_app.feature_plugins.permissions.models import (
+from derisk_ext.plugin.auth.rbac.models import (
     RoleEntity,
     RolePermissionEntity,
     UserRoleEntity,
@@ -43,7 +43,7 @@ from derisk_app.feature_plugins.permissions.models import (
     PermissionDefinitionEntity,
     RolePermissionDefEntity,
 )
-from derisk_app.feature_plugins.system_config_model import SystemConfigEntity
+from derisk_ext.plugin.auth.system_config import SystemConfigEntity
 
 _MODELS = [
     FileServeEntity,

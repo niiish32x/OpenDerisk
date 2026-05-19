@@ -7,9 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
-from derisk_app.feature_plugins.permissions.checker import require_admin, require_permission
-from derisk_app.feature_plugins.permissions.dao import PermissionDao
-from derisk_app.feature_plugins.permissions.service import PermissionService
+from derisk_app.auth.checker import require_admin, require_permission
+from derisk_ext.plugin.auth.rbac.dao import PermissionDao
+from derisk_ext.plugin.auth.rbac.service import PermissionService
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class UpdateUserRequest(BaseModel):
 
 
 def _get_user_service():
-    from derisk_app.auth.user_service import UserService
+    from derisk_ext.plugin.auth.user.service import UserService
     return UserService()
 
 
@@ -167,7 +167,7 @@ async def get_user_permissions(
     }
     ```
     """
-    from derisk_app.auth.user_service import UserService
+    from derisk_ext.plugin.auth.user.service import UserService
 
     svc = UserService()
     user = svc.get_user(user_id)

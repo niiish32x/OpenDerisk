@@ -88,6 +88,7 @@ export const PermissionsZh = {
   permissions_user_management: '用户授权',
   permissions_keyword_placeholder: '搜索用户名或邮箱',
   permissions_col_fullname: '全名',
+  permissions_col_nickname: '昵称',
   permissions_col_email: '邮箱',
   permissions_col_role: '旧版角色',
   permissions_col_status: '状态',

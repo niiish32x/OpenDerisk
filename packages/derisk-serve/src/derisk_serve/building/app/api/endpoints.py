@@ -28,7 +28,7 @@ CFG = Config()
 
 # Import permission checker (optional, keep backward compatibility when plugin absent)
 try:
-    from derisk_app.feature_plugins.permissions.checker import require_permission
+    from derisk_app.auth.checker import require_permission
 
     PERMISSIONS_AVAILABLE = True
 except ImportError:

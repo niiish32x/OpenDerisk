@@ -198,11 +198,11 @@ def mount_routers(app: FastAPI, param: Optional[ApplicationConfig] = None):
     app.include_router(streaming_config_router, tags=["Streaming Config"])
     logger.info("[Streaming] Config API routes registered at /api/v1/streaming-config")
 
-    from derisk_app.feature_plugins.bootstrap import (
+    from derisk_app.auth.bootstrap import (
         register_enabled_feature_plugin_routers,
     )
 
-    register_enabled_feature_plugin_routers(app)
+    register_enabled_feature_plugin_routers(app, param)
 
 
 def mount_static_files(app: FastAPI, param: ApplicationConfig):

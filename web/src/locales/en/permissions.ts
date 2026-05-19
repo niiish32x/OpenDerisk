@@ -88,6 +88,7 @@ export const PermissionsEn = {
   permissions_user_management: 'User Authorization',
   permissions_keyword_placeholder: 'Search by name or email',
   permissions_col_fullname: 'Full Name',
+  permissions_col_nickname: 'Nickname',
   permissions_col_email: 'Email',
   permissions_col_role: 'Legacy Role',
   permissions_col_status: 'Status',

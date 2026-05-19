@@ -89,6 +89,11 @@ prometheus = [
     "prometheus_client>=0.20.0",
 ]
 
+auth = [
+    "pyjwt>=2.8.0",
+    "cryptography>=41.0.0",
+]
+
 mcp_gateway=[
     "flask>=3.1.0",
     "flask-cors>=5.0.1",

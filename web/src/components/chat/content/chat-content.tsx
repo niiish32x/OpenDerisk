@@ -84,6 +84,7 @@ const pluginViewStatusMapper: Record<
 };
 
 const formatMarkdownVal = (val: string) => {
+  if (!val || typeof val !== 'string') return '';
   return val
     .replaceAll("\\n", "\n")
     .replace(/<table(\w*=[^>]+)>/gi, "<table $1>")
@@ -91,8 +92,9 @@ const formatMarkdownVal = (val: string) => {
 };
 
 const formatMarkdownValForAgent = (val: string) => {
+  if (!val || typeof val !== 'string') return '';
   return val
-    ?.replace(/<table(\w*=[^>]+)>/gi, "<table $1>")
+    .replace(/<table(\w*=[^>]+)>/gi, "<table $1>")
     .replace(/<tr(\w*=[^>]+)>/gi, "<tr $1>");
 };
 

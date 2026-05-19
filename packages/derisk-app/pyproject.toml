@@ -12,7 +12,7 @@ requires-python = ">= 3.10"
 dependencies = [
 #    "derisk-acc-auto",
     "derisk",
-    "derisk-ext",
+    "derisk-ext[auth]",
     "derisk-serve",
     "derisk-client",
     "aiofiles",

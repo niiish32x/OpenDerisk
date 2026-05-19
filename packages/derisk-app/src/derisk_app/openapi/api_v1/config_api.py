@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from derisk_core.config.schema import AppConfig
 from derisk_serve.utils.auth import UserRequest, get_user_from_headers
 
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.auth.checker import require_permission
 
 router = APIRouter(prefix="/config", tags=["Config"])
 
@@ -180,7 +180,7 @@ def _user_has_app_admin_role(user: UserRequest) -> bool:
         except ValueError:
             continue
         try:
-            from derisk_app.auth.user_service import UserService
+            from derisk_ext.plugin.auth.user.service import UserService
 
             row = UserService().get_user(uid)
             if row and (row.get("role") or "").strip() == "admin":
@@ -694,7 +694,7 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
 
     try:
         from derisk_core.config import AppConfig, OAuth2Config
-        from derisk_app.feature_plugins.permissions.dao import PermissionDao
+        from derisk_ext.plugin.auth.rbac.dao import PermissionDao
 
         # Validate default_role if provided
         default_role = oauth2_data.get("default_role", "viewer")
@@ -717,7 +717,7 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
                     f"Role '{default_role}' not found in database, available roles will be checked"
                 )
                 # List available roles for debugging
-                from derisk_app.feature_plugins.permissions.seed import SEED_ROLES
+                from derisk_ext.plugin.auth.rbac.seed import SEED_ROLES
 
                 available_roles = [r["name"] for r in SEED_ROLES]
                 logger.info(f"Available seed roles: {available_roles}")
@@ -786,8 +786,8 @@ async def update_oauth2_config(oauth2_data: Dict[str, Any]):
 @router.get("/feature-plugins/catalog")
 async def get_feature_plugins_catalog():
     """Builtin plugin catalog merged with current enabled/settings from database or derisk.json."""
-    from derisk_app.feature_plugins.catalog import merge_catalog_with_state
-    from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
+    from derisk_ext.plugin.auth.catalog import merge_catalog_with_state
+    from derisk_ext.plugin.auth.system_config import SystemConfigDao
 
     # Try to load from database first
     dao = SystemConfigDao()
@@ -814,7 +814,7 @@ async def get_feature_plugins_catalog():
 @router.get("/feature-plugins")
 async def get_feature_plugins_state():
     """Get feature plugins state from database."""
-    from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
+    from derisk_ext.plugin.auth.system_config import SystemConfigDao
 
     dao = SystemConfigDao()
     db_state = dao.get_all_configs("feature_plugin")
@@ -826,8 +826,8 @@ async def update_feature_plugins(
     body: FeaturePluginUpdateRequest,
     user: UserRequest = Depends(get_user_from_headers),
 ):
-    from derisk_app.feature_plugins.catalog import is_known_plugin, get_manifest
-    from derisk_app.feature_plugins.system_config_dao import SystemConfigDao
+    from derisk_ext.plugin.auth.catalog import is_known_plugin, get_manifest
+    from derisk_ext.plugin.auth.system_config import SystemConfigDao
     from derisk_core.config import FeaturePluginEntry
 
     _ensure_can_write_feature_plugins(user)

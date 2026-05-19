@@ -8,7 +8,7 @@ import asyncio
 import json
 
 from derisk_serve.utils.auth import UserRequest
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.auth.checker import require_permission
 
 router = APIRouter(prefix="/tools", tags=["Tools"])
 

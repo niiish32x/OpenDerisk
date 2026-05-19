@@ -7,14 +7,28 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from pydantic import BaseModel
 
-from derisk_app.auth.oauth import OAuth2Service
-from derisk_app.auth.session import (
-    SessionManager,
-    create_session_token,
-    verify_session_token,
-)
+from derisk_ext.plugin.auth.oauth import OAuth2Service
+from derisk_ext.plugin.auth.jwt import create_token, decode_token
+
+# Legacy session manager (CSRF state; OAuth agnostic, keep for now)
+from derisk_app.auth.session import SessionManager
 
 logger = logging.getLogger(__name__)
+
+def _build_login_rbac(user_id: int, fallback_role: str = "normal") -> Dict[str, Any]:
+    """Load RBAC permissions from DB and return claims dict for JWT creation."""
+    try:
+        from derisk_ext.plugin.auth.rbac.service import PermissionService
+
+        perms = PermissionService().get_user_permissions(user_id)
+        return {
+            "role": fallback_role,
+            "roles": perms.role_names,
+            "permissions": perms.permissions_map,
+        }
+    except Exception:
+        return {"role": fallback_role, "roles": [], "permissions": {}}
+
 
 router = APIRouter(prefix="/auth", tags=["Auth"])
 
@@ -85,7 +99,7 @@ def _resolve_role(user_info: Dict[str, Any]) -> tuple[str, str]:
 @router.get("/oauth/status")
 async def oauth_status():
     """Return whether OAuth2 is enabled and available providers (for frontend)."""
-    from derisk_app.auth.user_service import UserService
+    from derisk_ext.plugin.auth.user.service import UserService
 
     oauth_config = _get_oauth_config()
     if not oauth_config:
@@ -177,11 +191,26 @@ async def oauth_callback(
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/v1/auth/oauth/callback"
 
-    access_token = await oauth_service.exchange_code_for_token(
+    token_data = await oauth_service.exchange_code_for_token(
         provider_id=provider_id,
         provider_config=provider_config,
         redirect_uri=redirect_uri,
         code=code,
+    )
+    if not token_data:
+        return RedirectResponse(
+            url="/login?error=token_exchange_failed", status_code=302
+        )
+    # Some providers wrap fields inside 'data' / 'result'.
+    access_token = (
+        token_data.get("access_token")
+        or (token_data.get("data") or {}).get("access_token")
+        or (token_data.get("result") or {}).get("access_token")
+    )
+    id_token = (
+        token_data.get("id_token")
+        or (token_data.get("data") or {}).get("id_token")
+        or (token_data.get("result") or {}).get("id_token")
     )
     if not access_token:
         return RedirectResponse(
@@ -192,6 +221,7 @@ async def oauth_callback(
         provider_id=provider_id,
         provider_config=provider_config,
         access_token=access_token,
+        id_token=id_token,
     )
     if not user_info:
         return RedirectResponse(url="/login?error=userinfo_failed", status_code=302)
@@ -199,7 +229,7 @@ async def oauth_callback(
     oauth_id = str(user_info.get("id", ""))
     legacy_role, rbac_default_role = _resolve_role(user_info)
 
-    from derisk_app.auth.user_service import UserService
+    from derisk_ext.plugin.auth.user.service import UserService
 
     user_service = UserService()
     user = user_service.get_or_create_from_oauth(
@@ -216,7 +246,9 @@ async def oauth_callback(
     if not user.get("is_active", 1):
         return RedirectResponse(url="/login?error=user_disabled", status_code=302)
 
-    token = create_session_token(user)
+    user_id = int(user.get("id", 0))
+    rbac = _build_login_rbac(user_id, user.get("role", "normal"))
+    token = create_token(user=user, rbac=rbac)
 
     # Redirect to frontend - token in fragment so it's not sent to server
     base = str(request.base_url).rstrip("/")
@@ -237,14 +269,17 @@ async def oauth_callback(
 @router.post("/login")
 async def local_login(body: LocalLoginRequest, request: Request):
     """Local username/password login for admin and local users."""
-    from derisk_app.auth.user_service import UserService
+    from derisk_ext.plugin.auth.user.service import UserService
 
     svc = UserService()
     user = svc.verify_local_login(body.username, body.password)
     if not user:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-    token = create_session_token(user)
+    user_id = int(user.get("id", 0))
+    rbac = _build_login_rbac(user_id, user.get("role", "normal"))
+
+    token = create_token(user=user, rbac=rbac)
 
     response = JSONResponse(
         content={
@@ -256,7 +291,7 @@ async def local_login(body: LocalLoginRequest, request: Request):
                 "nick_name": user.get("name", user.get("fullname", "")),
                 "avatar_url": user.get("avatar", ""),
                 "email": user.get("email", ""),
-                "role": user.get("role", "normal"),
+                "role": rbac.get("role", user.get("role", "normal")),
                 "token": token,
             },
         }
@@ -281,19 +316,24 @@ async def get_current_user(request: Request):
     if not token:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    user = verify_session_token(token)
-    if not user:
+    claims = decode_token(token)
+    if not claims:
         raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+    # Handle both new JWT claims (sub/name) and legacy format (id/name)
+    user_id = claims.get("sub") or claims.get("id", "")
+    user_name = claims.get("name", "")
+    role = (claims.get("rbac") or {}).get("role", "") or claims.get("role", "normal")
 
     return JSONResponse(
         content={
-            "user": user,
+            "user": claims,
             "user_channel": "oauth",
-            "user_no": str(user.get("id", "")),
-            "nick_name": user.get("name", user.get("fullname", "")),
-            "avatar_url": user.get("avatar", ""),
-            "email": user.get("email", ""),
-            "role": user.get("role", "normal"),
+            "user_no": str(user_id),
+            "nick_name": user_name,
+            "avatar_url": claims.get("avatar_url", ""),
+            "email": claims.get("email", ""),
+            "role": role,
         }
     )
 

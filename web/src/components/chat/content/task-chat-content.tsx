@@ -6,6 +6,7 @@ import { IChatDialogueMessageSchema } from "@/types/chat";
 import { cloneDeep } from "lodash";
 import React, { memo, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
+import ErrorBoundary from "@/components/error-boundary";
 import { useDetailPanel } from "./chat-detail-content";
 import ChatDetailContent from "./chat-detail-content";
 import ChatHeader from "../header/chat-header";
@@ -104,7 +105,11 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
               <div className="w-full space-y-2">
                 {showMessages.map((content, index) => (
                   <div key={index}>
-                    <ChatContent content={content} messages={showMessages} />
+                    <ErrorBoundary fallbackRender={({ error }) => (
+                      <div className="p-4 text-red-500 text-sm">消息渲染失败: {error.message}</div>
+                    )}>
+                      <ChatContent content={content} messages={showMessages} />
+                    </ErrorBoundary>
                   </div>
                 ))}
                 <div className="h-8" />
@@ -162,7 +167,13 @@ const TaskChatContent: React.FC<TaskChatContentProps> = ({ ctrl }) => {
           )}
         >
           <div className="h-full w-full overflow-hidden">
-            <ChatDetailContent data={runningWindowData} />
+            <ErrorBoundary fallbackRender={({ error }) => (
+              <div className="flex items-center justify-center h-full text-red-500 p-4">
+                工作区渲染失败: {error.message}
+              </div>
+            )}>
+              <ChatDetailContent data={runningWindowData} />
+            </ErrorBoundary>
           </div>
         </div>
       )}

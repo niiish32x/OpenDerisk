@@ -19,7 +19,7 @@ from derisk.agent.tools.tool_manager import (
 )
 from derisk.agent.tools.registry import tool_registry, register_builtin_tools
 from derisk_serve.utils.auth import UserRequest
-from derisk_app.feature_plugins.permissions.checker import require_permission
+from derisk_app.auth.checker import require_permission
 
 logger = logging.getLogger(__name__)
 
