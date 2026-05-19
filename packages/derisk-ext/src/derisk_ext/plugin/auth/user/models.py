@@ -17,6 +17,7 @@ class UserEntity(Model):
     fullname = Column(String(50), nullable=True)
     oauth_provider = Column(String(64), nullable=True, comment="OAuth2 provider")
     oauth_id = Column(String(255), nullable=True, comment="OAuth provider user ID")
+    nickname = Column(String(50), nullable=True, comment="Nickname / screen name")
     email = Column(String(255), nullable=True, comment="User email")
     avatar = Column(String(512), nullable=True, comment="Avatar URL")
     password_hash = Column(String(255), nullable=True, comment="Bcrypt password hash for local login")
@@ -38,6 +39,7 @@ def user_to_dict(user: UserEntity) -> Dict[str, Any]:
         "id": user.id,
         "name": user.name or "",
         "fullname": user.fullname or "",
+        "nickname": user.nickname or "",
         "email": user.email or "",
         "avatar": user.avatar or "",
         "oauth_provider": user.oauth_provider or "",

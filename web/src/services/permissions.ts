@@ -59,8 +59,8 @@ export interface UserInfo {
   id: number;
   name: string;
   fullname: string;
+  nickname: string;
   email: string;
-  // 注意：不再使用旧版 role 字段，以 RBAC roles 为准
   is_active: number;
   roles: string[];
   gmt_create?: string | null;

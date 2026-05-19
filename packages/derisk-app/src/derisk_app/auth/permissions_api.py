@@ -312,10 +312,10 @@ async def list_users(
             "id": u["id"],
             "name": u["name"],
             "fullname": u["fullname"],
+            "nickname": u.get("nickname", ""),
             "email": u["email"],
-            # 注意：不再返回旧版 role 字段，以 RBAC 角色为准
-            "is_active": u["is_active"],
             "roles": user_roles_map.get(u["id"], []),
+            "is_active": u["is_active"],
             "gmt_create": u["gmt_create"],
         })
 
@@ -360,6 +360,7 @@ async def get_user_detail(
             "id": user["id"],
             "name": user["name"],
             "fullname": user["fullname"],
+            "nickname": user.get("nickname", ""),
             "email": user["email"],
             "role": user["role"],
             "is_active": user["is_active"],

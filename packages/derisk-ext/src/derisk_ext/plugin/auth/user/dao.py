@@ -86,20 +86,52 @@ class UserDao(BaseDao):
     ) -> Dict[str, Any]:
         """Create or update user from OAuth user info, return plain dict."""
         with self.session() as session:
-            user = (
-                session.query(UserEntity)
-                .filter(
-                    UserEntity.oauth_provider == provider,
-                    UserEntity.oauth_id == oauth_id,
+            if oauth_id:
+                user = (
+                    session.query(UserEntity)
+                    .filter(
+                        UserEntity.oauth_provider == provider,
+                        UserEntity.oauth_id == oauth_id,
+                    )
+                    .first()
                 )
-                .first()
-            )
+                # Migration: if no match by (provider, oauth_id), check for an
+                # existing user with the same provider + login name + empty
+                # oauth_id (created before oauth_id extraction was fixed).
+                # Update their oauth_id instead of creating a duplicate.
+                if user is None:
+                    name = (
+                        user_info.get("login")
+                        or user_info.get("username")
+                        or user_info.get("name", "")
+                    )
+                    if name:
+                        stale_user = (
+                            session.query(UserEntity)
+                            .filter(
+                                UserEntity.oauth_provider == provider,
+                                UserEntity.name == name,
+                                UserEntity.oauth_id == "",
+                            )
+                            .first()
+                        )
+                        if stale_user:
+                            stale_user.oauth_id = oauth_id
+                            session.merge(stale_user)
+                            session.commit()
+                            session.refresh(stale_user)
+                            user = stale_user
+            else:
+                # Empty oauth_id would match ALL users of the same provider,
+                # causing overwrites. Skip lookup and always create a new user.
+                user = None
             name = (
                 user_info.get("login")
                 or user_info.get("username")
                 or user_info.get("name", "")
             )
             fullname = user_info.get("name") or user_info.get("fullname", "")
+            nickname = user_info.get("nickname", "")
             email = user_info.get("email", "")
             avatar = (
                 user_info.get("avatar_url")
@@ -110,6 +142,7 @@ class UserDao(BaseDao):
             if user:
                 user.name = name or user.name
                 user.fullname = fullname or user.fullname
+                user.nickname = nickname or user.nickname
                 user.email = email or user.email
                 user.avatar = avatar or user.avatar
                 merged = session.merge(user)
@@ -122,6 +155,7 @@ class UserDao(BaseDao):
                 user = UserEntity(
                     name=name,
                     fullname=fullname,
+                    nickname=nickname,
                     oauth_provider=provider,
                     oauth_id=oauth_id,
                     email=email,

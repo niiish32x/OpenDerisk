@@ -1,28 +1,33 @@
-"""OAuth2 flow implementation - authorization, token exchange, userinfo."""
+"""OAuth2 flow service — thin dispatcher that delegates to typed providers."""
 
 import logging
 from typing import Any, Dict, Optional
 
 import httpx
 
+from derisk_ext.plugin.auth.providers import GitHubProvider, MoziProvider
+from derisk_ext.plugin.auth.providers.base import BaseOAuthProvider
+
 logger = logging.getLogger(__name__)
 
-# GitHub OAuth2 endpoints
-GITHUB_AUTH_URL = "https://github.com/login/oauth/authorize"
-GITHUB_TOKEN_URL = "https://github.com/login/oauth/access_token"
-GITHUB_USERINFO_URL = "https://api.github.com/user"
-
-# Alibaba-inc (MOZI) OAuth2 endpoints
-MOZI_AUTH_URL = "https://mozi-login.alibaba-inc.com/oauth2/auth.htm"
-MOZI_TOKEN_URL = "https://mozi-login.alibaba-inc.com/rpc/oauth2/access_token.json"
-MOZI_USERINFO_URL = "https://mozi-login.alibaba-inc.com/rpc/oauth2/user_info.json"
+# ---------------------------------------------------------------------------
+# Provider registry — add new OAuth2 / OIDC providers here.
+# ---------------------------------------------------------------------------
+_PROVIDERS: Dict[str, BaseOAuthProvider] = {
+    "alibaba-inc": MoziProvider(),
+    "github": GitHubProvider(),
+}
 
 
 class OAuth2Service:
-    """OAuth2 flow service - handles login redirect, callback, userinfo fetch."""
+    """OAuth2 flow service."""
 
-    def __init__(self):
-        pass
+    def _get_provider(
+        self, provider_config: Dict[str, Any]
+    ) -> Optional[BaseOAuthProvider]:
+        return _PROVIDERS.get(provider_config.get("type", ""))
+
+    # ---- public API -------------------------------------------------------
 
     def get_authorization_url(
         self,
@@ -31,41 +36,19 @@ class OAuth2Service:
         redirect_uri: str,
         state: str,
     ) -> Optional[str]:
-        """Build OAuth2 authorization URL."""
-        if provider_config.get("type") == "github":
-            client_id = provider_config.get("client_id", "")
-            scope = provider_config.get("scope", "read:user user:email")
-            if not client_id:
-                return None
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "scope": scope,
-                "state": state,
-            }
-            qs = "&".join(f"{k}={v}" for k, v in params.items())
-            return f"{GITHUB_AUTH_URL}?{qs}"
-        elif provider_config.get("type") == "alibaba-inc":
-            client_id = provider_config.get("client_id", "")
-            scope = provider_config.get("scope", "get_user_info")
-            if not client_id:
-                return None
-            params = {
-                "client_id": client_id,
-                "redirect_uri": redirect_uri,
-                "state": state,
-                "response_type": "code",
-            }
-            if scope:
-                params["scope"] = scope
-            qs = "&".join(f"{k}={v}" for k, v in params.items())
-            return f"{MOZI_AUTH_URL}?{qs}"
-        elif provider_config.get("type") == "custom":
+        provider = self._get_provider(provider_config)
+        if provider:
+            return provider.get_authorization_url(
+                provider_config, redirect_uri, state
+            )
+
+        # Generic / custom provider (config-driven)
+        if provider_config.get("type") == "custom":
             auth_url = provider_config.get("authorization_url", "")
             client_id = provider_config.get("client_id", "")
-            scope = provider_config.get("scope", "")
             if not auth_url or not client_id:
                 return None
+            scope = provider_config.get("scope", "")
             params = {
                 "client_id": client_id,
                 "redirect_uri": redirect_uri,
@@ -77,6 +60,7 @@ class OAuth2Service:
             qs = "&".join(f"{k}={v}" for k, v in params.items())
             sep = "&" if "?" in auth_url else "?"
             return f"{auth_url}{sep}{qs}"
+
         return None
 
     async def exchange_code_for_token(
@@ -85,28 +69,15 @@ class OAuth2Service:
         provider_config: Dict[str, Any],
         redirect_uri: str,
         code: str,
-    ) -> Optional[str]:
-        """Exchange authorization code for access token."""
-        if provider_config.get("type") == "github":
-            token_url = GITHUB_TOKEN_URL
-            data = {
-                "client_id": provider_config.get("client_id", ""),
-                "client_secret": provider_config.get("client_secret", ""),
-                "code": code,
-                "redirect_uri": redirect_uri,
-            }
-            headers = {"Accept": "application/json"}
-        elif provider_config.get("type") == "alibaba-inc":
-            token_url = MOZI_TOKEN_URL
-            data = {
-                "client_id": provider_config.get("client_id", ""),
-                "client_secret": provider_config.get("client_secret", ""),
-                "code": code,
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code",
-            }
-            headers = {"Accept": "application/json"}
-        elif provider_config.get("type") == "custom":
+    ) -> Optional[Dict[str, Any]]:
+        provider = self._get_provider(provider_config)
+        if provider:
+            return await provider.exchange_code_for_token(
+                provider_config, redirect_uri, code
+            )
+
+        # Generic / custom provider
+        if provider_config.get("type") == "custom":
             token_url = provider_config.get("token_url", "")
             if not token_url:
                 return None
@@ -117,59 +88,73 @@ class OAuth2Service:
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             }
-            headers = {"Accept": "application/json"}
-        else:
-            return None
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.post(
+                        token_url,
+                        data=data,
+                        headers={"Accept": "application/json"},
+                    )
+                    resp.raise_for_status()
+                    return resp.json()
+            except Exception:
+                logger.exception("Token exchange failed")
+                return None
 
-        try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.post(token_url, data=data, headers=headers)
-                resp.raise_for_status()
-                result = resp.json()
-                return result.get("access_token")
-        except Exception as e:
-            logger.exception(f"Token exchange failed: {e}")
-            return None
+        return None
 
     async def fetch_userinfo(
-        self, provider_id: str, provider_config: Dict[str, Any], access_token: str
+        self,
+        provider_id: str,
+        provider_config: Dict[str, Any],
+        access_token: str,
+        id_token: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Fetch user info from OAuth provider."""
-        if provider_config.get("type") == "github":
-            userinfo_url = GITHUB_USERINFO_URL
-            headers = {"Authorization": f"Bearer {access_token}"}
-        elif provider_config.get("type") == "alibaba-inc":
-            userinfo_url = MOZI_USERINFO_URL
-            # MOZI format: POST with access_token in body
-            headers = {"Content-Type": "application/x-www-form-urlencoded"}
-        elif provider_config.get("type") == "custom":
+        token_data: Dict[str, Any] = {"access_token": access_token}
+        if id_token:
+            token_data["id_token"] = id_token
+
+        provider = self._get_provider(provider_config)
+        if provider:
+            return await provider.fetch_userinfo(provider_config, token_data)
+
+        # Generic / custom provider
+        if provider_config.get("type") == "custom":
             userinfo_url = provider_config.get("userinfo_url", "")
             if not userinfo_url:
                 return None
-            headers = {"Authorization": f"Bearer {access_token}"}
-        else:
-            return None
-
-        try:
-            async with httpx.AsyncClient() as client:
-                if provider_config.get("type") == "alibaba-inc":
-                    resp = await client.post(
-                        userinfo_url, data={"access_token": access_token}, headers=headers
+            try:
+                async with httpx.AsyncClient() as client:
+                    resp = await client.get(
+                        userinfo_url,
+                        headers={"Authorization": f"Bearer {access_token}"},
                     )
-                else:
-                    resp = await client.get(userinfo_url, headers=headers)
-                resp.raise_for_status()
-                data = resp.json()
-                return {
-                    "id": str(data.get("openId") or data.get("id") or ""),
-                    "login": data.get("login", data.get("account", "")),
-                    "username": data.get("username", data.get("nickNameCn", "")),
-                    "name": data.get("name", data.get("realName", data.get("lastName", ""))),
-                    "email": data.get("email", ""),
-                    "avatar_url": data.get("avatar_url", data.get("avatar", "")),
-                    "avatar": data.get("avatar", ""),
-                    "picture": data.get("picture", ""),
-                }
-        except Exception as e:
-            logger.exception(f"Userinfo fetch failed: {e}")
-            return None
+                    resp.raise_for_status()
+                    data = resp.json()
+                    raw_id = (
+                        data.get("sub")
+                        or data.get("id")
+                        or data.get("uid")
+                        or data.get("userId")
+                        or ""
+                    )
+                    return {
+                        "id": str(raw_id) if raw_id else "",
+                        "login": data.get("login", data.get("account", "")),
+                        "nickname": data.get("nickname", data.get("nickNameCn", "")),
+                        "username": data.get("username", data.get("name", "")),
+                        "name": data.get("name", data.get("realName", "")),
+                        "email": (
+                            data.get("email")
+                            or data.get("mail")
+                            or ""
+                        ),
+                        "avatar_url": data.get("avatar_url", data.get("avatar", "")),
+                        "avatar": data.get("avatar", ""),
+                        "picture": data.get("picture", ""),
+                    }
+            except Exception:
+                logger.exception("Userinfo fetch failed")
+                return None
+
+        return None

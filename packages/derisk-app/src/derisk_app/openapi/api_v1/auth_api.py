@@ -191,11 +191,26 @@ async def oauth_callback(
     base_url = str(request.base_url).rstrip("/")
     redirect_uri = f"{base_url}/api/v1/auth/oauth/callback"
 
-    access_token = await oauth_service.exchange_code_for_token(
+    token_data = await oauth_service.exchange_code_for_token(
         provider_id=provider_id,
         provider_config=provider_config,
         redirect_uri=redirect_uri,
         code=code,
+    )
+    if not token_data:
+        return RedirectResponse(
+            url="/login?error=token_exchange_failed", status_code=302
+        )
+    # Some providers wrap fields inside 'data' / 'result'.
+    access_token = (
+        token_data.get("access_token")
+        or (token_data.get("data") or {}).get("access_token")
+        or (token_data.get("result") or {}).get("access_token")
+    )
+    id_token = (
+        token_data.get("id_token")
+        or (token_data.get("data") or {}).get("id_token")
+        or (token_data.get("result") or {}).get("id_token")
     )
     if not access_token:
         return RedirectResponse(
@@ -206,6 +221,7 @@ async def oauth_callback(
         provider_id=provider_id,
         provider_config=provider_config,
         access_token=access_token,
+        id_token=id_token,
     )
     if not user_info:
         return RedirectResponse(url="/login?error=userinfo_failed", status_code=302)
